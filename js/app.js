@@ -9,6 +9,16 @@ const CONFIG = {
 };
 
 const STORAGE_KEY = 'washDashBookings';
+const STATUS_STEPS = [
+  { key: 'Booking Confirmed', icon: '✓', description: "The customer's booking has been received and confirmed." },
+  { key: 'Ready for Pickup', icon: '🚚', description: 'The laundry is scheduled and ready to be collected from the customer address.' },
+  { key: 'Picked Up', icon: '📦', description: 'The laundry has been collected and is on its way to the laundry shop.' },
+  { key: 'Processing', icon: '🧺', description: 'Your laundry is currently being washed, dried, and folded.' },
+  { key: 'Ready for Delivery', icon: '✨', description: 'The laundry has been cleaned, folded, and is ready to be delivered back.' },
+  { key: 'Out for Delivery', icon: '🚚', description: 'The laundry is currently on its way to the delivery address.' },
+  { key: 'Completed', icon: '✓', description: 'The laundry has been successfully delivered.' }
+];
+const STATUS_OPTIONS = [...STATUS_STEPS.map(status => status.key), 'Cancelled'];
 const state = {
   step: 1, service: 'standard', weight: 5, ironing: 0, bedding: 0, eco: false,
   date: '', timeSlot: '', payment: 'GCash', details: {}, calendarDate: new Date()
@@ -16,12 +26,30 @@ const state = {
 const $ = (selector, parent = document) => parent.querySelector(selector);
 const $$ = (selector, parent = document) => [...parent.querySelectorAll(selector)];
 const money = value => `₱${Math.round(value).toLocaleString('en-PH')}`;
-const bookings = () => JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+const bookings = () => JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]').map(booking => {
+  if (booking.status === 'Pending' || booking.status === 'Confirmed') booking.status = 'Booking Confirmed';
+  if (!booking.statusHistory) booking.statusHistory = [{ status: booking.status, at: booking.createdAt || new Date().toISOString() }];
+  return booking;
+});
 const saveBookings = list => localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
 const dateKey = date => date.toISOString().slice(0, 10);
 const parseDate = key => new Date(`${key}T00:00:00`);
 const todayKey = () => dateKey(new Date());
 const readableDate = key => key ? parseDate(key).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Not selected';
+const readableDateTime = value => value ? new Date(value).toLocaleString('en-PH', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Pending';
+const statusIndex = status => STATUS_STEPS.findIndex(step => step.key === status);
+
+function renderTracking(booking) {
+  const result = $('#trackingResult');
+  if (!booking) { result.classList.add('hidden'); $('#trackingError').textContent = 'We could not find that booking reference. Please check the number and try again.'; return; }
+  $('#trackingError').textContent = '';
+  const currentIndex = statusIndex(booking.status);
+  const history = Object.fromEntries((booking.statusHistory || []).map(entry => [entry.status, entry.at]));
+  const timeline = STATUS_STEPS.map((step, index) => { const completed = index < currentIndex; const current = index === currentIndex; return `<li class="timeline-item ${completed ? 'completed' : ''} ${current ? 'current' : ''}"><span class="timeline-icon">${completed ? '✓' : step.icon}</span><div><strong>${step.key}</strong><small>${history[step.key] ? `Updated: ${readableDateTime(history[step.key])}` : 'Pending'}</small></div></li>`; }).join('');
+  result.innerHTML = `<div class="tracking-header"><div><span class="eyebrow">Current status</span><h3>${booking.status}</h3></div><span class="tracking-status-icon">${STATUS_STEPS[currentIndex]?.icon || '!'}</span></div><div class="tracking-grid"><div class="tracking-card"><span class="mini-label">Booking details</span><dl><dt>Booking number</dt><dd>${booking.id}</dd><dt>Customer</dt><dd>${booking.customer}</dd><dt>Service</dt><dd>${booking.service}</dd><dt>Laundry weight</dt><dd>${booking.weight} kg</dd><dt>Pickup date</dt><dd>${readableDate(booking.date)}</dd><dt>Pickup time</dt><dd>${booking.time}</dd><dt>Estimated total</dt><dd>${money(booking.total)}</dd></dl></div><div class="tracking-card timeline-card"><span class="mini-label">Status history</span><ol class="status-timeline">${timeline}</ol></div></div>`;
+  result.classList.remove('hidden');
+}
+function trackOrder() { const reference = $('#trackingReference').value.trim().toUpperCase(); renderTracking(bookings().find(booking => booking.id.toUpperCase() === reference)); }
 
 function getServiceLabel(key = state.service) {
   return { standard: 'Standard Wash, Dry & Fold', premium: 'Premium Care', express: 'Express Service', family: 'Family Package', professional: 'Professional Package', corporate: 'Corporate Package' }[key];
@@ -183,7 +211,8 @@ function createBooking() {
   const list = bookings();
   if (slotFull(state.date, state.timeSlot)) return showToast('This slot is now fully booked. Please choose another.');
   const reference = `WD-${new Date().getFullYear()}-${String(list.length + 1).padStart(4, '0')}`;
-  const booking = { id: reference, customer: state.details.name, phone: state.details.phone, email: state.details.email, pickupAddress: state.details.pickupAddress, deliveryAddress: state.details.deliveryAddress, instructions: state.details.instructions || '', service: getServiceLabel(), serviceKey: state.service, weight: state.weight, addOns: { ironing: state.ironing, bedding: state.bedding, eco: state.eco }, date: state.date, timeSlot: state.timeSlot, time: CONFIG.slots[state.timeSlot].time, payment: state.payment, serviceFee: totals.service, addOnFees: totals.addOns, deliveryFee: totals.delivery, total: totals.total, status: 'Pending', createdAt: new Date().toISOString() };
+  const createdAt = new Date().toISOString();
+  const booking = { id: reference, customer: state.details.name, phone: state.details.phone, email: state.details.email, pickupAddress: state.details.pickupAddress, deliveryAddress: state.details.deliveryAddress, instructions: state.details.instructions || '', service: getServiceLabel(), serviceKey: state.service, weight: state.weight, addOns: { ironing: state.ironing, bedding: state.bedding, eco: state.eco }, date: state.date, timeSlot: state.timeSlot, time: CONFIG.slots[state.timeSlot].time, payment: state.payment, serviceFee: totals.service, addOnFees: totals.addOns, deliveryFee: totals.delivery, total: totals.total, status: 'Booking Confirmed', createdAt, statusHistory: [{ status: 'Booking Confirmed', at: createdAt }] };
   list.push(booking); saveBookings(list);
   $('#confirmationReference').textContent = reference;
   $('#confirmationDetails').innerHTML = `<div><span>Customer</span><strong>${booking.customer}</strong></div><div><span>Service</span><strong>${booking.service}</strong></div><div><span>Pickup</span><strong>${readableDate(booking.date)} · ${booking.timeSlot === 'morning' ? 'Morning' : 'Afternoon'}</strong></div><div><span>Total</span><strong>${money(booking.total)}</strong></div>`;
@@ -215,7 +244,7 @@ function renderAdmin(tab = 'overview') {
 function adminSlotRow(date, slot) { const count = getSlotBookings(date, slot); const full = slotFull(date, slot); return `<div class="slot-admin-row"><span>${CONFIG.slots[slot].label}<br><small>${CONFIG.slots[slot].time}</small></span><span class="${full ? 'status-full' : 'status-good'}">${full ? 'Fully booked' : `${count} / ${CONFIG.capacity[slot]} booked`}</span></div>`; }
 function adminTable(list) {
   if (!list.length) return '<div class="admin-empty">No bookings yet. A confirmed customer booking will appear here.</div>';
-  const statuses = ['Pending', 'Confirmed', 'Pickup Scheduled', 'Laundry Processing', 'Ready for Delivery', 'Delivered', 'Completed', 'Cancelled'];
+  const statuses = STATUS_OPTIONS;
   return `<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Booking ID</th><th>Customer</th><th>Service</th><th>Weight</th><th>Pickup time</th><th>Status</th><th>Total</th></tr></thead><tbody>${list.map(booking => `<tr><td><strong>${booking.id}</strong></td><td>${booking.customer}</td><td>${booking.service}</td><td>${booking.weight} kg</td><td>${readableDate(booking.date)}<br>${booking.timeSlot}</td><td><select class="status-select" data-status-id="${booking.id}">${statuses.map(status => `<option ${status === booking.status ? 'selected' : ''}>${status}</option>`).join('')}</select></td><td><strong>${money(booking.total)}</strong></td></tr>`).join('')}</tbody></table></div>`;
 }
 function init() {
@@ -233,11 +262,14 @@ function init() {
   $('#prevMonth').addEventListener('click', () => { state.calendarDate.setMonth(state.calendarDate.getMonth() - 1); renderCalendar(); });
   $('#nextMonth').addEventListener('click', () => { state.calendarDate.setMonth(state.calendarDate.getMonth() + 1); renderCalendar(); });
   $('#confirmBooking').addEventListener('click', createBooking);
+  $('#trackOrderBtn').addEventListener('click', trackOrder);
+  $('#trackingReference').addEventListener('keydown', event => { if (event.key === 'Enter') trackOrder(); });
+  $('#trackConfirmationBtn').addEventListener('click', () => { $('#trackingReference').value = $('#confirmationReference').textContent; trackOrder(); document.querySelector('#tracking').scrollIntoView({ behavior: 'smooth' }); });
   $('#viewBookingBtn').addEventListener('click', () => { renderAdmin(); document.querySelector('#admin').scrollIntoView({ behavior: 'smooth' }); });
   $('[data-go-home]').addEventListener('click', () => { resetBooking(); document.querySelector('#home').scrollIntoView({ behavior: 'smooth' }); });
   $('#adminLink').addEventListener('click', () => document.querySelector('#admin').scrollIntoView({ behavior: 'smooth' }));
   $$('.admin-tab').forEach(button => button.addEventListener('click', () => renderAdmin(button.dataset.adminTab)));
-  $('#adminPanel').addEventListener('change', event => { if (!event.target.matches('[data-status-id]')) return; const list = bookings(); const booking = list.find(item => item.id === event.target.dataset.statusId); if (booking) { booking.status = event.target.value; saveBookings(list); renderAdmin(); showToast('Booking status updated.'); } });
+  $('#adminPanel').addEventListener('change', event => { if (!event.target.matches('[data-status-id]')) return; const list = bookings(); const booking = list.find(item => item.id === event.target.dataset.statusId); if (booking) { const nextStatus = event.target.value; if (booking.status !== nextStatus) booking.statusHistory.push({ status: nextStatus, at: new Date().toISOString() }); booking.status = nextStatus; saveBookings(list); renderAdmin(); showToast('Booking status updated.'); } });
   $('#menuToggle').addEventListener('click', () => { const nav = $('#mainNav'); const open = nav.classList.toggle('open'); $('#menuToggle').setAttribute('aria-expanded', open); });
   $$('#mainNav a').forEach(link => link.addEventListener('click', () => $('#mainNav').classList.remove('open')));
   const modal = $('#infoModal'); $('#subscribeBtn').addEventListener('click', () => modal.classList.remove('hidden')); $('#modalClose').addEventListener('click', () => modal.classList.add('hidden')); modal.addEventListener('click', event => { if (event.target === modal) modal.classList.add('hidden'); });
