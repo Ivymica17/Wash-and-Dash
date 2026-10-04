@@ -9,6 +9,9 @@ const CONFIG = {
 };
 
 const STORAGE_KEY = 'washDashBookings';
+const ADMIN_USERS_KEY = 'washDashAdminUsers';
+const ADMIN_SESSION_KEY = 'washDashAdminUsername';
+const DEFAULT_ADMIN_USER = { username: 'admin', password: 'washdash123' };
 const STATUS_STEPS = [
   { key: 'Booking Confirmed', icon: '✓', description: "The customer's booking has been received and confirmed." },
   { key: 'Ready for Pickup', icon: '🚚', description: 'The laundry is scheduled and ready to be collected from the customer address.' },
@@ -38,6 +41,69 @@ const todayKey = () => dateKey(new Date());
 const readableDate = key => key ? parseDate(key).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Not selected';
 const readableDateTime = value => value ? new Date(value).toLocaleString('en-PH', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Pending';
 const statusIndex = status => STATUS_STEPS.findIndex(step => step.key === status);
+const getAdminUsers = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(ADMIN_USERS_KEY) || '[]');
+    if (!saved.length) {
+      localStorage.setItem(ADMIN_USERS_KEY, JSON.stringify([DEFAULT_ADMIN_USER]));
+      return [DEFAULT_ADMIN_USER];
+    }
+    return saved;
+  } catch (error) {
+    const fallback = [DEFAULT_ADMIN_USER];
+    localStorage.setItem(ADMIN_USERS_KEY, JSON.stringify(fallback));
+    return fallback;
+  }
+};
+const saveAdminUsers = users => localStorage.setItem(ADMIN_USERS_KEY, JSON.stringify(users));
+const isAdminLoggedIn = () => Boolean(localStorage.getItem(ADMIN_SESSION_KEY));
+const getAdminSessionUsername = () => localStorage.getItem(ADMIN_SESSION_KEY) || '';
+const setAdminLoggedIn = username => localStorage.setItem(ADMIN_SESSION_KEY, username || '');
+
+function syncAdminUi() {
+  const adminSection = $('#admin');
+  const adminLink = $('#adminLink');
+  const adminNavActions = $('#adminNavActions');
+  const adminNavPanel = $('#adminNavPanel');
+  const loggedIn = isAdminLoggedIn();
+  const username = getAdminSessionUsername();
+  if (adminSection) adminSection.classList.toggle('hidden', !loggedIn);
+  if (adminLink) adminLink.textContent = loggedIn ? 'Admin panel' : 'Admin login';
+  if (adminNavActions) adminNavActions.classList.toggle('hidden', !loggedIn);
+  if (adminNavPanel) adminNavPanel.textContent = username ? `Admin: ${username}` : 'Admin panel';
+}
+
+function switchAuthTabs(tab) {
+  const loginPanel = $('#loginPanel');
+  const signupPanel = $('#signupPanel');
+  const tabs = $$('.auth-tab');
+  const isLogin = tab === 'login';
+  loginPanel.classList.toggle('hidden', !isLogin);
+  signupPanel.classList.toggle('hidden', isLogin);
+  tabs.forEach(button => button.classList.toggle('active', button.dataset.authTab === tab));
+}
+
+function openAdminLogin() {
+  const modal = $('#adminLoginModal');
+  if (modal) {
+    $('#adminLoginError').textContent = '';
+    $('#adminSignupError').textContent = '';
+    switchAuthTabs('login');
+    modal.classList.remove('hidden');
+  }
+}
+
+function closeAdminLogin() {
+  const modal = $('#adminLoginModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function logoutAdmin() {
+  setAdminLoggedIn('');
+  syncAdminUi();
+  closeAdminLogin();
+  showToast('Admin logged out.');
+}
 
 function renderTracking(booking) {
   const result = $('#trackingResult');
@@ -242,12 +308,77 @@ function renderAdmin(tab = 'overview') {
   }
 }
 function adminSlotRow(date, slot) { const count = getSlotBookings(date, slot); const full = slotFull(date, slot); return `<div class="slot-admin-row"><span>${CONFIG.slots[slot].label}<br><small>${CONFIG.slots[slot].time}</small></span><span class="${full ? 'status-full' : 'status-good'}">${full ? 'Fully booked' : `${count} / ${CONFIG.capacity[slot]} booked`}</span></div>`; }
+function handleAdminLoginSubmit(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const usernameInput = form.querySelector('input[name="username"]');
+  const passwordInput = form.querySelector('input[name="password"]');
+  const username = usernameInput ? usernameInput.value.trim() : '';
+  const password = passwordInput ? passwordInput.value.trim() : '';
+  const error = $('#adminLoginError');
+  const users = getAdminUsers();
+  const match = users.find(user => user.username === username && user.password === password);
+
+  if (match) {
+    setAdminLoggedIn(username);
+    syncAdminUi();
+    closeAdminLogin();
+    renderAdmin();
+    document.querySelector('#admin').scrollIntoView({ behavior: 'smooth' });
+    showToast('Admin access granted.');
+    form.reset();
+    return;
+  }
+  error.textContent = 'Invalid username or password.';
+}
+function handleAdminSignupSubmit(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const usernameInput = form.querySelector('input[name="username"]');
+  const passwordInput = form.querySelector('input[name="password"]');
+  const confirmInput = form.querySelector('input[name="confirm"]');
+  const username = usernameInput ? usernameInput.value.trim() : '';
+  const password = passwordInput ? passwordInput.value.trim() : '';
+  const confirm = confirmInput ? confirmInput.value.trim() : '';
+  const error = $('#adminSignupError');
+  error.textContent = '';
+
+  if (!username || !password) {
+    error.textContent = 'Username and password are required.';
+    return;
+  }
+  if (password.length < 6) {
+    error.textContent = 'Password must be at least 6 characters.';
+    return;
+  }
+  if (password !== confirm) {
+    error.textContent = 'Passwords do not match.';
+    return;
+  }
+
+  const users = getAdminUsers();
+  if (users.some(user => user.username.toLowerCase() === username.toLowerCase())) {
+    error.textContent = 'This username is already taken.';
+    return;
+  }
+
+  users.push({ username, password });
+  saveAdminUsers(users);
+  setAdminLoggedIn(username);
+  syncAdminUi();
+  closeAdminLogin();
+  renderAdmin();
+  document.querySelector('#admin').scrollIntoView({ behavior: 'smooth' });
+  showToast('Admin account created.');
+  form.reset();
+}
 function adminTable(list) {
   if (!list.length) return '<div class="admin-empty">No bookings yet. A confirmed customer booking will appear here.</div>';
   const statuses = STATUS_OPTIONS;
   return `<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Booking ID</th><th>Customer</th><th>Service</th><th>Weight</th><th>Pickup time</th><th>Status</th><th>Total</th></tr></thead><tbody>${list.map(booking => `<tr><td><strong>${booking.id}</strong></td><td>${booking.customer}</td><td>${booking.service}</td><td>${booking.weight} kg</td><td>${readableDate(booking.date)}<br>${booking.timeSlot}</td><td><select class="status-select" data-status-id="${booking.id}">${statuses.map(status => `<option ${status === booking.status ? 'selected' : ''}>${status}</option>`).join('')}</select></td><td><strong>${money(booking.total)}</strong></td></tr>`).join('')}</tbody></table></div>`;
 }
 function init() {
+  syncAdminUi();
   renderServiceChoices(); renderWeight(); renderAddons(); renderCalendar(); renderAdmin();
   $$('[data-go-booking]').forEach(button => button.addEventListener('click', () => { setStep(1); document.querySelector('#booking').scrollIntoView({ behavior: 'smooth' }); }));
   $$('[data-service]').forEach(button => button.addEventListener('click', () => { setService(button.dataset.service); setStep(1); document.querySelector('#booking').scrollIntoView({ behavior: 'smooth' }); }));
@@ -265,9 +396,29 @@ function init() {
   $('#trackOrderBtn').addEventListener('click', trackOrder);
   $('#trackingReference').addEventListener('keydown', event => { if (event.key === 'Enter') trackOrder(); });
   $('#trackConfirmationBtn').addEventListener('click', () => { $('#trackingReference').value = $('#confirmationReference').textContent; trackOrder(); document.querySelector('#tracking').scrollIntoView({ behavior: 'smooth' }); });
-  $('#viewBookingBtn').addEventListener('click', () => { renderAdmin(); document.querySelector('#admin').scrollIntoView({ behavior: 'smooth' }); });
+  $('#viewBookingBtn').addEventListener('click', () => { if (!isAdminLoggedIn()) { openAdminLogin(); return; } renderAdmin(); document.querySelector('#admin').scrollIntoView({ behavior: 'smooth' }); });
   $('[data-go-home]').addEventListener('click', () => { resetBooking(); document.querySelector('#home').scrollIntoView({ behavior: 'smooth' }); });
-  $('#adminLink').addEventListener('click', () => document.querySelector('#admin').scrollIntoView({ behavior: 'smooth' }));
+  $('#adminLink').addEventListener('click', () => {
+    if (!isAdminLoggedIn()) {
+      openAdminLogin();
+      return;
+    }
+    renderAdmin();
+    document.querySelector('#admin').scrollIntoView({ behavior: 'smooth' });
+  });
+  $('#adminNavPanel').addEventListener('click', () => {
+    renderAdmin();
+    document.querySelector('#admin').scrollIntoView({ behavior: 'smooth' });
+  });
+  $('#adminNavLogout').addEventListener('click', logoutAdmin);
+  $('#adminLoginForm').addEventListener('submit', handleAdminLoginSubmit);
+  $('#adminSignupForm').addEventListener('submit', handleAdminSignupSubmit);
+  $('#adminSignupForm').addEventListener('input', () => { $('#adminSignupError').textContent = ''; });
+  $$('.auth-tab').forEach(button => button.addEventListener('click', () => switchAuthTabs(button.dataset.authTab)));
+  $('#adminLoginClose').addEventListener('click', closeAdminLogin);
+  $('#adminLoginCancel').addEventListener('click', closeAdminLogin);
+  $('#adminSignupCancel').addEventListener('click', closeAdminLogin);
+  $('#adminLoginModal').addEventListener('click', event => { if (event.target === $('#adminLoginModal')) closeAdminLogin(); });
   $$('.admin-tab').forEach(button => button.addEventListener('click', () => renderAdmin(button.dataset.adminTab)));
   $('#adminPanel').addEventListener('change', event => { if (!event.target.matches('[data-status-id]')) return; const list = bookings(); const booking = list.find(item => item.id === event.target.dataset.statusId); if (booking) { const nextStatus = event.target.value; if (booking.status !== nextStatus) booking.statusHistory.push({ status: nextStatus, at: new Date().toISOString() }); booking.status = nextStatus; saveBookings(list); renderAdmin(); showToast('Booking status updated.'); } });
   $('#menuToggle').addEventListener('click', () => { const nav = $('#mainNav'); const open = nav.classList.toggle('open'); $('#menuToggle').setAttribute('aria-expanded', open); });

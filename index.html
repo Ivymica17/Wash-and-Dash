@@ -16,6 +16,172 @@
       color: transparent;
     }
     .sidebar-brand .brand-mark.small span { color: transparent; }
+    .admin-header-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .admin-header-actions p {
+      margin: 0;
+      color: var(--muted);
+      max-width: 620px;
+    }
+    .admin-nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-left: auto;
+    }
+    .admin-nav-button {
+      white-space: nowrap;
+    }
+    .admin-login-card {
+      width: min(520px, calc(100vw - 36px));
+      max-width: 520px;
+      max-height: calc(100dvh - 40px);
+      overflow-y: auto;
+      padding: 28px 40px 30px;
+      border: 1px solid rgba(7, 17, 19, 0.45);
+      border-radius: 3px;
+      background: #192326;
+      color: #f4f7f8;
+      box-shadow: 0 8px 25px rgba(10, 24, 29, 0.25);
+      text-align: center;
+    }
+    .admin-login-card .modal-close {
+      right: 16px;
+      top: 12px;
+      color: #aab6ba;
+    }
+    .admin-login-card h2 {
+      margin: 8px 0 16px;
+      color: #f4f7f8;
+      font: 600 27px/1.2 "DM Sans", sans-serif;
+      line-height: 1.1;
+    }
+    .admin-login-card .modal-icon {
+      display: grid;
+      place-items: center;
+      width: 52px;
+      height: 52px;
+      margin: 0 auto 12px;
+      border-radius: 0;
+      background: transparent;
+      color: #10d4bd;
+    }
+    .admin-key-icon {
+      display: block;
+      width: 52px;
+      height: 52px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 4;
+    }
+    #adminLoginModal {
+      background: #003e48 url("assets/admin background.avif") center / cover no-repeat;
+    }
+    .auth-switcher {
+      display: inline-flex;
+      justify-content: center;
+      gap: 24px;
+      padding: 0;
+      margin-bottom: 12px;
+      border-bottom: 1px solid #354247;
+    }
+    .auth-tab {
+      border: 0;
+      border-bottom: 2px solid transparent;
+      background: transparent;
+      color: #97a5aa;
+      font-weight: 700;
+      padding: 7px 8px 9px;
+    }
+    .auth-tab.active {
+      border-bottom-color: #10d4bd;
+      color: #10d4bd;
+    }
+    .auth-panel.hidden,
+    .admin-nav-actions.hidden {
+      display: none !important;
+    }
+    .admin-login-form {
+      display: grid;
+      gap: 14px;
+      margin-top: 8px;
+      max-width: 100%;
+    }
+    .admin-login-form label {
+      display: grid;
+      gap: 5px;
+      color: #849197;
+      font-size: 10px;
+      font-weight: 600;
+      text-align: left;
+      align-items: start;
+      text-transform: uppercase;
+    }
+    .admin-login-form input {
+      width: 100%;
+      border: 0;
+      border-bottom: 1px solid #11cdbb;
+      border-radius: 0;
+      padding: 6px 0 8px;
+      font: inherit;
+      color: #f4f7f8;
+      background: transparent;
+      text-align: left;
+    }
+    .admin-login-form input:focus {
+      outline: 0;
+      border-bottom-width: 2px;
+      border-bottom-color: #10d4bd;
+    }
+    .admin-login-form input::placeholder {
+      color: #c5ced1;
+      opacity: 1;
+    }
+    .admin-login-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      margin-top: 10px;
+    }
+    .admin-login-actions .button {
+      min-width: 104px;
+      border: 1px solid #10d4bd;
+      border-radius: 0;
+      background: transparent;
+      color: #10d4bd;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 10px 14px;
+    }
+    .admin-login-actions button[id$="Cancel"] {
+      display: none;
+    }
+    .admin-login-form .error-message {
+      min-height: 18px;
+      margin: 0;
+      font-size: 13px;
+      color: var(--red);
+    }
+    @media (max-width: 520px) {
+      .admin-login-card {
+        padding: 26px 24px;
+      }
+      .admin-login-card h2 {
+        font-size: 23px;
+      }
+    }
+    @media (max-width: 760px) {
+      .admin-nav-actions {
+        margin-left: 0;
+      }
+    }
   </style>
 </head>
 <body>
@@ -29,6 +195,10 @@
         <a href="#home">Home</a><a href="#services">Services</a><a href="#pricing">Pricing</a><a href="#how-it-works">How it works</a><a href="#tracking">Track my laundry</a><a href="#contact">Contact</a>
         <button class="button button-small nav-cta" data-go-booking>Book a pickup <span aria-hidden="true">→</span></button>
       </nav>
+      <div id="adminNavActions" class="admin-nav-actions hidden">
+        <button class="button button-small button-ghost admin-nav-button" id="adminNavPanel" type="button">Admin panel</button>
+        <button class="button button-small admin-nav-button" id="adminNavLogout" type="button">Logout</button>
+      </div>
     </div>
   </header>
 
@@ -88,14 +258,16 @@
 
 <section class="section tracking-section" id="tracking"><div class="container"><div class="section-heading centered"><p class="eyebrow">Order tracking</p><h2>Where's your laundry?</h2><p>Enter your booking reference number to see the latest status of your laundry.</p></div><div class="tracking-search"><label for="trackingReference">Booking Reference Number</label><div class="tracking-search-row"><input id="trackingReference" type="text" placeholder="Enter Booking Reference" autocomplete="off"><button class="button" id="trackOrderBtn">Track order <span>→</span></button></div><small>Example: WD-2026-0001</small><p class="error-message" id="trackingError"></p></div><div class="tracking-result hidden" id="trackingResult"></div></div></section>
 
-<section class="section admin-section" id="admin"><div class="container"><div class="section-heading"><div><p class="eyebrow">Operations view</p><h2>Admin dashboard.</h2></div><p>Prototype view for managing booking status, capacity, and daily pickup flow.</p></div><div class="admin-tabs"><button class="admin-tab active" data-admin-tab="overview">Overview</button><button class="admin-tab" data-admin-tab="calendar">Booking calendar</button><button class="admin-tab" data-admin-tab="slots">Slot management</button></div><div class="admin-panel" id="adminPanel"></div></div></section>
+<section class="section admin-section hidden" id="admin"><div class="container"><div class="section-heading"><div><p class="eyebrow">Operations view</p><h2>Admin dashboard.</h2></div><div class="admin-header-actions"><p>Prototype view for managing booking status, capacity, and daily pickup flow.</p><button class="button button-ghost button-small" id="adminLogout" type="button">Log out</button></div></div><div class="admin-tabs"><button class="admin-tab active" data-admin-tab="overview">Overview</button><button class="admin-tab" data-admin-tab="calendar">Booking calendar</button><button class="admin-tab" data-admin-tab="slots">Slot management</button></div><div class="admin-panel" id="adminPanel"></div></div></section>
 
 <section class="section contact-section" id="contact"><div class="container contact-grid"><div><p class="eyebrow">Come say hello</p><h2>Let's get your laundry moving.</h2><p>Questions, special requests, or a bulk order? Our team is one call away.</p></div><div class="contact-actions"><a href="tel:09481686312"><span>☎</span><div><small>Call us</small><strong>0948 168 6312</strong></div></a><a href="#" class="facebook-link"><span>f</span><div><small>Facebook</small><strong>Grab and Wash</strong></div></a><button data-go-booking><span>→</span><div><small>Ready when you are</small><strong>Book a pickup</strong></div></button></div></div></section>
 </main>
 
-<footer class="site-footer"><div class="container footer-grid"><div class="brand footer-brand"><img class="brand-logo footer-logo" src="assets/logo.jfif" alt="Wash and Dash Laundry Services logo"><span><strong>Wash & Dash</strong><small>Laundry Services</small></span></div><p>"The faster way to a fresher day"</p><div class="footer-contact"><strong>0948 168 6312</strong><span>Grab and Wash on Facebook</span></div><div class="footer-links"><a href="#home">Home</a><a href="#services">Services</a><a href="#pricing">Pricing</a><a href="#booking">Book now</a><a href="#tracking">Track laundry</a><a href="#contact">Contact</a></div></div><div class="container footer-bottom"><span>© 2026 Wash and Dash Laundry Services</span><button id="adminLink">Admin dashboard</button><span>Local care. Fresh thinking.</span></div></footer>
+<footer class="site-footer"><div class="container footer-grid"><div class="brand footer-brand"><img class="brand-logo footer-logo" src="assets/logo.jfif" alt="Wash and Dash Laundry Services logo"><span><strong>Wash & Dash</strong><small>Laundry Services</small></span></div><p>"The faster way to a fresher day"</p><div class="footer-contact"><strong>0948 168 6312</strong><span>Grab and Wash on Facebook</span></div><div class="footer-links"><a href="#home">Home</a><a href="#services">Services</a><a href="#pricing">Pricing</a><a href="#booking">Book now</a><a href="#tracking">Track laundry</a><a href="#contact">Contact</a></div></div><div class="container footer-bottom"><span>© 2026 Wash and Dash Laundry Services</span><button id="adminLink" type="button">Admin login</button><span>Local care. Fresh thinking.</span></div></footer>
 
 <div class="modal hidden" id="infoModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><div class="modal-card"><button class="modal-close" id="modalClose" aria-label="Close">×</button><span class="modal-icon">✦</span><h2 id="modalTitle">Monthly laundry subscription</h2><p>For ₱500/month, the prototype subscription includes unlimited pickups and deliveries. Our team will confirm coverage, terms, and payment details with you before activation.</p><button class="button" data-go-booking id="modalAction">Start a booking <span>→</span></button></div></div>
-<script src="js/app.js"></script>
+
+<div class="modal hidden" id="adminLoginModal" role="dialog" aria-modal="true" aria-labelledby="adminLoginTitle"><div class="modal-card admin-login-card"><button class="modal-close" id="adminLoginClose" aria-label="Close">×</button><span class="modal-icon" aria-hidden="true"><svg class="admin-key-icon" viewBox="0 0 48 48"><circle cx="14" cy="14" r="9"></circle><path d="M20.5 20.5 41 41M31 31l5-5m-10-1 5-5"></path></svg></span><h2 id="adminLoginTitle">ADMIN PANEL</h2><div class="auth-switcher"><button class="auth-tab active" type="button" data-auth-tab="login">Login</button><button class="auth-tab" type="button" data-auth-tab="signup">Sign up</button></div><div id="loginPanel" class="auth-panel"><form id="adminLoginForm" class="admin-login-form"><label>Username<input type="text" name="username" placeholder="admin" autocomplete="username" required></label><label>Password<input type="password" name="password" placeholder="Enter password" autocomplete="current-password" required></label><p class="error-message" id="adminLoginError"></p><div class="admin-login-actions"><button class="button button-ghost" type="button" id="adminLoginCancel">Cancel</button><button class="button" type="submit">Log in</button></div></form></div><div id="signupPanel" class="auth-panel hidden"><form id="adminSignupForm" class="admin-login-form"><label>Username<input type="text" name="username" placeholder="new_admin" autocomplete="username" required></label><label>Password<input type="password" name="password" placeholder="Create password" autocomplete="new-password" required></label><label>Confirm password<input type="password" name="confirm" placeholder="Repeat password" autocomplete="new-password" required></label><p class="error-message" id="adminSignupError"></p><div class="admin-login-actions"><button class="button button-ghost" type="button" id="adminSignupCancel">Cancel</button><button class="button" type="submit">Create account</button></div></form></div></div></div>
+<script src="js/app.js?v=2"></script>
 </body>
 </html>
