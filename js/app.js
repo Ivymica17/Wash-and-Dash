@@ -8,6 +8,7 @@ const CONFIG = {
   subscription: 500
 };
 const PAYMENT_QR_IMAGES = {
+  GCash: 'assets/gcash.jfif',
   Maya: 'assets/maya.jfif',
   GoTyme: 'assets/gotyme.jfif',
   MariBank: 'assets/maribank.jfif'
