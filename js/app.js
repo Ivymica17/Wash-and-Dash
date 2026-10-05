@@ -276,7 +276,10 @@ function createBooking() {
   const totals = calculateTotal();
   const list = bookings();
   if (slotFull(state.date, state.timeSlot)) return showToast('This slot is now fully booked. Please choose another.');
-  const reference = `WD-${new Date().getFullYear()}-${String(list.length + 1).padStart(4, '0')}`;
+  const randomBytes = new Uint8Array(16);
+  crypto.getRandomValues(randomBytes);
+  const uniqueCode = Array.from(randomBytes, byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase();
+  const reference = `WD-${new Date().getFullYear()}-${uniqueCode}`;
   const createdAt = new Date().toISOString();
   const booking = { id: reference, customer: state.details.name, phone: state.details.phone, email: state.details.email, pickupAddress: state.details.pickupAddress, deliveryAddress: state.details.deliveryAddress, instructions: state.details.instructions || '', service: getServiceLabel(), serviceKey: state.service, weight: state.weight, addOns: { ironing: state.ironing, bedding: state.bedding, eco: state.eco }, date: state.date, timeSlot: state.timeSlot, time: CONFIG.slots[state.timeSlot].time, payment: state.payment, serviceFee: totals.service, addOnFees: totals.addOns, deliveryFee: totals.delivery, total: totals.total, status: 'Booking Confirmed', createdAt, statusHistory: [{ status: 'Booking Confirmed', at: createdAt }] };
   list.push(booking); saveBookings(list);
