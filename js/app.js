@@ -18,61 +18,15 @@ let supabaseClient = null;
 let currentAdmin = null;
 let bookingCache = [];
 let loadedSlotMonth = '';
-const slotBookingCounts = new Map();
-const STATUS_STEPS = [
-  { key: 'Booking Confirmed', icon: '✓', description: "The customer's booking has been received and confirmed." },
-  { key: 'Ready for Pickup', icon: '🚚', description: 'The laundry is scheduled and ready to be collected from the customer address.' },
-  { key: 'Picked Up', icon: '📦', description: 'The laundry has been collected and is on its way to the laundry shop.' },
-  { key: 'Processing', icon: '🧺', description: 'Your laundry is currently being washed, dried, and folded.' },
-  { key: 'Ready for Delivery', icon: '✨', description: 'The laundry has been cleaned, folded, and is ready to be delivered back.' },
-  { key: 'Out for Delivery', icon: '🚚', description: 'The laundry is currently on its way to the delivery address.' },
-  { key: 'Completed', icon: '✓', description: 'The laundry has been successfully delivered.' }
-];
-const STATUS_OPTIONS = [...STATUS_STEPS.map(status => status.key), 'Cancelled'];
-const state = {
-  step: 1, service: 'standard', weight: 5, ironing: 0, bedding: 0, eco: false,
-  date: '', timeSlot: '', payment: 'Maya', details: {}, calendarDate: new Date()
+const PROTOTYPE_STORAGE_KEY = 'washDashPrototypeBookings';
+const loadPrototypeBookings = () => {
+  try { return JSON.parse(localStorage.getItem(PROTOTYPE_STORAGE_KEY) || '[]'); }
+  catch (_) { return []; }
 };
-const $ = (selector, parent = document) => parent.querySelector(selector);
-const $$ = (selector, parent = document) => [...parent.querySelectorAll(selector)];
-const money = value => `₱${Math.round(value).toLocaleString('en-PH')}`;
-const bookings = () => bookingCache;
-const isAdminLoggedIn = () => Boolean(currentAdmin);
-const getAdminSessionUsername = () => currentAdmin?.email || '';
-const slotCountKey = (date, slot) => `${date}:${slot}`;
-const fromDatabaseBooking = row => ({
-  id: row.id, customer: row.customer, phone: row.phone, email: row.email,
-  pickupAddress: row.pickup_address, deliveryAddress: row.delivery_address,
-  instructions: row.instructions, service: row.service, serviceKey: row.service_key,
-  weight: row.weight, addOns: row.add_ons, date: row.booking_date,
-  timeSlot: row.time_slot, time: row.pickup_time, payment: row.payment,
-  serviceFee: row.service_fee, addOnFees: row.add_on_fees, deliveryFee: row.delivery_fee,
-  total: row.total, status: row.status, createdAt: row.created_at,
-  statusHistory: row.status_history || []
-});
-const toDatabaseBooking = booking => ({
-  id: booking.id, customer: booking.customer, phone: booking.phone, email: booking.email,
-  pickup_address: booking.pickupAddress, delivery_address: booking.deliveryAddress,
-  instructions: booking.instructions, service: booking.service, service_key: booking.serviceKey,
-  weight: booking.weight, add_ons: booking.addOns, booking_date: booking.date,
-  time_slot: booking.timeSlot, pickup_time: booking.time, payment: booking.payment,
-  service_fee: booking.serviceFee, add_on_fees: booking.addOnFees,
-  delivery_fee: booking.deliveryFee, total: booking.total, status: booking.status,
-  status_history: booking.statusHistory, created_at: booking.createdAt
-});
-async function loadAdminBookings() {
-  if (!supabaseClient || !isAdminLoggedIn()) return bookingCache;
-  const { data, error } = await supabaseClient.from('bookings').select('*').order('booking_date');
-  if (error) throw error;
-  bookingCache = data.map(fromDatabaseBooking);
-  return bookingCache;
-}
-const dateKey = date => date.toISOString().slice(0, 10);
-const parseDate = key => new Date(`${key}T00:00:00`);
-const todayKey = () => dateKey(new Date());
-const readableDate = key => key ? parseDate(key).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Not selected';
-const readableDateTime = value => value ? new Date(value).toLocaleString('en-PH', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Pending';
-const statusIndex = status => STATUS_STEPS.findIndex(step => step.key === status);
+const savePrototypeBookings = () => {
+  localStorage.setItem(PROTOTYPE_STORAGE_KEY, JSON.stringify(bookingCache));
+};
+
 function syncAdminUi() {
   const adminSection = $('#admin');
   const adminLink = $('#adminLink');
@@ -132,7 +86,11 @@ function renderTracking(booking) {
 }
 async function trackOrder() {
   const reference = $('#trackingReference').value.trim().toUpperCase();
-  if (!supabaseClient) { $('#trackingError').textContent = 'Online tracking is not configured yet.'; return; }
+  if (!supabaseClient) {
+    const booking = loadPrototypeBookings().find(item => item.id.toUpperCase() === reference);
+    renderTracking(booking || null);
+    return;
+  }
   try {
     const { data, error } = await supabaseClient.rpc('get_booking_tracking', { p_reference: reference });
     if (error) throw error;
@@ -167,6 +125,19 @@ function slotFull(date, slot) {
   return getSlotBookings(date, slot) >= CONFIG.capacity[slot];
 }
 async function refreshSlotCounts(startDate, endDate, monthToken = '') {
+  if (!supabaseClient) {
+    const start = parseDate(startDate).getTime();
+    const end = parseDate(endDate).getTime();
+    slotBookingCounts.clear();
+    loadPrototypeBookings().forEach(booking => {
+      const value = parseDate(booking.date).getTime();
+      if (value >= start && value <= end && booking.status !== 'Cancelled') {
+        const key = slotCountKey(booking.date, booking.timeSlot);
+        slotBookingCounts.set(key, (slotBookingCounts.get(key) || 0) + 1);
+      }
+    });
+    return;
+  }
   const { data, error } = await supabaseClient.rpc('get_slot_counts', { p_start: startDate, p_end: endDate });
   if (error) throw error;
   if (monthToken && loadedSlotMonth !== monthToken) return;
@@ -336,7 +307,6 @@ function resetBooking() {
   renderServiceChoices(); renderWeight(); renderAddons(); setStep(1);
 }
 async function createBooking() {
-  if (!supabaseClient) return showToast('Online booking is not configured yet.');
   if (!validateSchedule()) return;
   const totals = calculateTotal();
   try {
@@ -352,14 +322,20 @@ async function createBooking() {
   const reference = `WD-${new Date().getFullYear()}-${uniqueCode}`;
   const createdAt = new Date().toISOString();
   const booking = { id: reference, customer: state.details.name, phone: state.details.phone, email: state.details.email, pickupAddress: state.details.pickupAddress, deliveryAddress: state.details.deliveryAddress, instructions: state.details.instructions || '', service: getServiceLabel(), serviceKey: state.service, weight: state.weight, addOns: { ironing: state.ironing, bedding: state.bedding, eco: state.eco }, date: state.date, timeSlot: state.timeSlot, time: CONFIG.slots[state.timeSlot].time, payment: state.payment, serviceFee: totals.service, addOnFees: totals.addOns, deliveryFee: totals.delivery, total: totals.total, status: 'Booking Confirmed', createdAt, statusHistory: [{ status: 'Booking Confirmed', at: createdAt }] };
-  const { error } = await supabaseClient.from('bookings').insert(toDatabaseBooking(booking));
-  if (error) {
-    showToast(error.code === 'P0001' ? 'That slot just filled up. Please choose another.' : 'Could not save your booking. Please try again.');
-    loadedSlotMonth = '';
-    renderCalendar();
-    return;
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from('bookings').insert(toDatabaseBooking(booking));
+    if (error) {
+      showToast(error.code === 'P0001' ? 'That slot just filled up. Please choose another.' : 'Could not save your booking. Please try again.');
+      loadedSlotMonth = '';
+      renderCalendar();
+      return;
+    }
+  } else {
+    bookingCache = loadPrototypeBookings();
+    bookingCache.push(booking);
+    savePrototypeBookings();
   }
-  if (isAdminLoggedIn()) bookingCache.push(booking);
+  if (isAdminLoggedIn() && supabaseClient) bookingCache.push(booking);
   loadedSlotMonth = '';
   renderCalendar();
   $('#confirmationReference').textContent = reference;
@@ -406,13 +382,26 @@ async function userIsAdmin(user) {
 async function handleAdminLoginSubmit(event) {
   event.preventDefault();
   const form = event.currentTarget;
-  const usernameInput = form.querySelector('input[name="email"]');
-  const passwordInput = form.querySelector('input[name="password"]');
-  const email = usernameInput ? usernameInput.value.trim().toLowerCase() : '';
-  const password = passwordInput ? passwordInput.value : '';
+  const email = form.elements.email.value.trim().toLowerCase();
+  const password = form.elements.password.value;
   const error = $('#adminLoginError');
-  if (!supabaseClient) { error.textContent = 'Supabase is not configured yet.'; return; }
-  const { data, error: authError } = await supabaseClient.auth.signInWithPassword({ email, password });
+  error.textContent = '';
+  if (!supabaseClient) {
+    if (!email || password.length < 6) {
+      error.textContent = 'Enter an email and a password with at least 6 characters.';
+      return;
+    }
+    currentAdmin = { email };
+    await loadAdminBookings();
+    syncAdminUi();
+    closeAdminLogin();
+    await renderAdmin();
+    document.querySelector('#admin').scrollIntoView({ behavior: 'smooth' });
+    showToast('Prototype admin access granted.');
+    form.reset();
+    return;
+  }
+  const { data, authError } = await supabaseClient.auth.signInWithPassword({ email, password });
   if (authError || !data.user) { error.textContent = 'Invalid email or password.'; return; }
   if (!await userIsAdmin(data.user)) {
     await supabaseClient.auth.signOut();
@@ -482,6 +471,17 @@ function adminTable(list) {
   if (!list.length) return '<div class="admin-empty">No bookings yet. A confirmed customer booking will appear here.</div>';
   const statuses = STATUS_OPTIONS;
   return `<div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>Booking ID</th><th>Customer</th><th>Service</th><th>Weight</th><th>Pickup time</th><th>Status</th><th>Total</th></tr></thead><tbody>${list.map(booking => `<tr><td><strong>${booking.id}</strong></td><td>${booking.customer}</td><td>${booking.service}</td><td>${booking.weight} kg</td><td>${readableDate(booking.date)}<br>${booking.timeSlot}</td><td><select class="status-select" data-status-id="${booking.id}">${statuses.map(status => `<option ${status === booking.status ? 'selected' : ''}>${status}</option>`).join('')}</select></td><td><strong>${money(booking.total)}</strong></td></tr>`).join('')}</tbody></table></div>`;
+}
+async function loadAdminBookings() {
+  if (!supabaseClient) {
+    bookingCache = loadPrototypeBookings();
+    return bookingCache;
+  }
+  if (!isAdminLoggedIn()) return bookingCache;
+  const { data, error } = await supabaseClient.from('bookings').select('*').order('booking_date');
+  if (error) throw error;
+  bookingCache = data.map(fromDatabaseBooking);
+  return bookingCache;
 }
 async function init() {
   const config = window.WASH_DASH_SUPABASE;
