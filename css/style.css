@@ -104,3 +104,22 @@
     transform: none;
   }
 }
+
+@media (max-width: 520px) {
+  .hero-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .hero-actions .button {
+    justify-content: center;
+    padding: 14px 8px;
+    font-size: 14px;
+    white-space: nowrap;
+  }
+
+  .hero h1 {
+    font-size: 42px;
+  }
+}
