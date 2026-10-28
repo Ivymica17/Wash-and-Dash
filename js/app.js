@@ -1,3 +1,6 @@
+const $ = selector => document.querySelector(selector);
+const $$ = selector => Array.from(document.querySelectorAll(selector));
+
 const CONFIG = {
   business: { name: 'Wash and Dash Laundry Services', tagline: 'The faster way to a fresher day', phone: '0948 168 6312', facebook: 'Grab and Wash' },
   rates: { standardMin: 60, standardMax: 70, standardRate: 70, premiumMin: 90, premiumMax: 100, premiumRate: 100, express: 120, ironing: 15, bedding: 175, eco: 10 },
@@ -18,6 +21,52 @@ let supabaseClient = null;
 let currentAdmin = null;
 let bookingCache = [];
 let loadedSlotMonth = '';
+const slotBookingCounts = new Map();
+const STATUS_STEPS = [
+  { key: 'Booking Confirmed', icon: '✓', description: "The customer's booking has been received and confirmed." },
+  { key: 'Ready for Pickup', icon: '↗', description: 'The laundry is scheduled and ready to be collected from the customer address.' },
+  { key: 'Picked Up', icon: '✓', description: 'The laundry has been collected and is on its way to the laundry shop.' },
+  { key: 'Processing', icon: '↻', description: 'Your laundry is currently being washed, dried, and folded.' },
+  { key: 'Ready for Delivery', icon: '✓', description: 'The laundry has been cleaned, folded, and is ready to be delivered back.' },
+  { key: 'Out for Delivery', icon: '↗', description: 'The laundry is currently on its way to the delivery address.' },
+  { key: 'Completed', icon: '✓', description: 'The laundry has been successfully delivered.' }
+];
+const STATUS_OPTIONS = [...STATUS_STEPS.map(status => status.key), 'Cancelled'];
+const state = {
+  step: 1, service: 'standard', weight: 5, ironing: 0, bedding: 0, eco: false,
+  date: '', timeSlot: '', payment: 'Maya', details: {}, calendarDate: new Date()
+};
+const money = value => `₱${Math.round(value).toLocaleString('en-PH')}`;
+const bookings = () => bookingCache;
+function isAdminLoggedIn() { return Boolean(currentAdmin); }
+function getAdminSessionUsername() { return currentAdmin?.email || ''; }
+const slotCountKey = (date, slot) => `${date}:${slot}`;
+const fromDatabaseBooking = row => ({
+  id: row.id, customer: row.customer, phone: row.phone, email: row.email,
+  pickupAddress: row.pickup_address, deliveryAddress: row.delivery_address,
+  instructions: row.instructions, service: row.service, serviceKey: row.service_key,
+  weight: row.weight, addOns: row.add_ons, date: row.booking_date,
+  timeSlot: row.time_slot, time: row.pickup_time, payment: row.payment,
+  serviceFee: row.service_fee, addOnFees: row.add_on_fees, deliveryFee: row.delivery_fee,
+  total: row.total, status: row.status, createdAt: row.created_at,
+  statusHistory: row.status_history || []
+});
+const toDatabaseBooking = booking => ({
+  id: booking.id, customer: booking.customer, phone: booking.phone, email: booking.email,
+  pickup_address: booking.pickupAddress, delivery_address: booking.deliveryAddress,
+  instructions: booking.instructions, service: booking.service, service_key: booking.serviceKey,
+  weight: booking.weight, add_ons: booking.addOns, booking_date: booking.date,
+  time_slot: booking.timeSlot, pickup_time: booking.time, payment: booking.payment,
+  service_fee: booking.serviceFee, add_on_fees: booking.addOnFees,
+  delivery_fee: booking.deliveryFee, total: booking.total, status: booking.status,
+  status_history: booking.statusHistory, created_at: booking.createdAt
+});
+const dateKey = date => date.toISOString().slice(0, 10);
+const parseDate = key => new Date(`${key}T00:00:00`);
+const todayKey = () => dateKey(new Date());
+const readableDate = key => key ? parseDate(key).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Not selected';
+const readableDateTime = value => value ? new Date(value).toLocaleString('en-PH', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Pending';
+const statusIndex = status => STATUS_STEPS.findIndex(step => step.key === status);
 const PROTOTYPE_STORAGE_KEY = 'washDashPrototypeBookings';
 const loadPrototypeBookings = () => {
   try { return JSON.parse(localStorage.getItem(PROTOTYPE_STORAGE_KEY) || '[]'); }
@@ -484,36 +533,6 @@ async function loadAdminBookings() {
   return bookingCache;
 }
 async function init() {
-  const config = window.WASH_DASH_SUPABASE;
-  if (window.supabase?.createClient && config?.url && config?.anonKey && !config.url.startsWith('YOUR_') && !config.anonKey.startsWith('YOUR_')) {
-    supabaseClient = window.supabase.createClient(config.url, config.anonKey);
-    supabaseClient.auth.onAuthStateChange((_event, session) => {
-      const user = session?.user || null;
-      window.setTimeout(async () => {
-        if (!user) {
-          currentAdmin = null;
-          bookingCache = [];
-          syncAdminUi();
-          return;
-        }
-        if (await userIsAdmin(user)) {
-          currentAdmin = user;
-          syncAdminUi();
-          renderAdmin();
-        } else {
-          currentAdmin = null;
-          syncAdminUi();
-          await supabaseClient.auth.signOut();
-        }
-      }, 0);
-    });
-    const { data } = await supabaseClient.auth.getSession();
-    if (data.session?.user && await userIsAdmin(data.session.user)) currentAdmin = data.session.user;
-    else if (data.session?.user) await supabaseClient.auth.signOut();
-  } else {
-    $('#adminLoginError').textContent = 'Add your Supabase project URL and anon key to js/supabase-config.js.';
-    $('#trackingError').textContent = 'Online tracking will be available after Supabase is configured.';
-  }
   syncAdminUi();
   renderServiceChoices(); renderWeight(); renderAddons(); renderCalendar(); renderAdmin();
   $$('[data-go-booking]').forEach(button => button.addEventListener('click', () => { setStep(1); document.querySelector('#booking').scrollIntoView({ behavior: 'smooth' }); }));
@@ -574,6 +593,39 @@ async function init() {
   $('#menuToggle').addEventListener('click', () => { const nav = $('#mainNav'); const open = nav.classList.toggle('open'); $('#menuToggle').setAttribute('aria-expanded', open); });
   $$('#mainNav a').forEach(link => link.addEventListener('click', () => $('#mainNav').classList.remove('open')));
   const modal = $('#infoModal'); $('#subscribeBtn').addEventListener('click', () => modal.classList.remove('hidden')); $('#modalClose').addEventListener('click', () => modal.classList.add('hidden')); modal.addEventListener('click', event => { if (event.target === modal) modal.classList.add('hidden'); });
+
+  const config = window.WASH_DASH_SUPABASE;
+  if (window.supabase?.createClient && config?.url && config?.anonKey && !config.url.startsWith('YOUR_') && !config.anonKey.startsWith('YOUR_')) {
+    supabaseClient = window.supabase.createClient(config.url, config.anonKey);
+    supabaseClient.auth.onAuthStateChange((_event, session) => {
+      const user = session?.user || null;
+      window.setTimeout(async () => {
+        if (!user) {
+          currentAdmin = null;
+          bookingCache = [];
+          syncAdminUi();
+          return;
+        }
+        if (await userIsAdmin(user)) {
+          currentAdmin = user;
+          syncAdminUi();
+          renderAdmin();
+        } else {
+          currentAdmin = null;
+          syncAdminUi();
+          await supabaseClient.auth.signOut();
+        }
+      }, 0);
+    });
+    const { data } = await supabaseClient.auth.getSession();
+    if (data.session?.user && await userIsAdmin(data.session.user)) currentAdmin = data.session.user;
+    else if (data.session?.user) await supabaseClient.auth.signOut();
+  } else {
+    $('#adminLoginError').textContent = 'Add your Supabase project URL and anon key to js/supabase-config.js.';
+    $('#trackingError').textContent = 'Online tracking will be available after Supabase is configured.';
+  }
+  syncAdminUi();
+  renderAdmin();
 }
 
 document.addEventListener('DOMContentLoaded', init);
