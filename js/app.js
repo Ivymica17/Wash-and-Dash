@@ -406,7 +406,7 @@ async function renderAdmin(tab = 'overview') {
   try {
     await loadAdminBookings();
   } catch (error) {
-    panel.innerHTML = '<div class="admin-empty">Could not load bookings. Please check the Supabase connection.</div>';
+    panel.innerHTML = '<div class="admin-empty">Could not load local bookings. Please refresh and try again.</div>';
     return;
   }
   const list = bookings().sort((a, b) => `${a.date}${a.timeSlot}`.localeCompare(`${b.date}${b.timeSlot}`));
@@ -482,7 +482,6 @@ async function handleAdminSignupSubmit(event) {
   const error = $('#adminSignupError');
   error.textContent = '';
 
-  if (!supabaseClient) { error.textContent = 'Supabase is not configured yet.'; return; }
   if (!email || !password) {
     error.textContent = 'Email and password are required.';
     return;
@@ -496,24 +495,13 @@ async function handleAdminSignupSubmit(event) {
     return;
   }
 
-  const { data, error: authError } = await supabaseClient.auth.signUp({ email, password });
-  if (authError) { error.textContent = authError.message; return; }
-  if (!data.session) {
-    error.textContent = 'Check your email to confirm. The email must be allowlisted in Supabase for admin access.';
-    form.reset();
-    return;
-  }
-  if (!await userIsAdmin(data.user)) {
-    await supabaseClient.auth.signOut();
-    error.textContent = 'This email is not allowlisted for admin access. Ask the owner to add it in Supabase.';
-    return;
-  }
-  currentAdmin = data.user;
+  currentAdmin = { email };
+  await loadAdminBookings();
   syncAdminUi();
   closeAdminLogin();
   await renderAdmin();
   document.querySelector('#admin').scrollIntoView({ behavior: 'smooth' });
-  showToast('Admin account created.');
+  showToast('Prototype admin access granted.');
   form.reset();
 }
 function adminTable(list) {
@@ -535,9 +523,13 @@ async function loadAdminBookings() {
 async function init() {
   syncAdminUi();
   renderServiceChoices(); renderWeight(); renderAddons(); renderCalendar(); renderAdmin();
-  $$('[data-go-booking]').forEach(button => button.addEventListener('click', () => { setStep(1); document.querySelector('#booking').scrollIntoView({ behavior: 'smooth' }); }));
-  $$('[data-service]').forEach(button => button.addEventListener('click', () => { setService(button.dataset.service); setStep(1); document.querySelector('#booking').scrollIntoView({ behavior: 'smooth' }); }));
-  $$('[data-package]').forEach(button => button.addEventListener('click', () => { setService(button.dataset.package); setStep(1); document.querySelector('#booking').scrollIntoView({ behavior: 'smooth' }); }));
+  $$('[data-go-booking]').forEach(button => button.addEventListener('click', () => {
+    setStep(1);
+    $('#mainNav').classList.remove('open');
+    $('#menuToggle').setAttribute('aria-expanded', 'false');
+  }));
+  $$('[data-service]').forEach(button => button.addEventListener('click', () => { setService(button.dataset.service); setStep(1); }));
+  $$('[data-package]').forEach(button => button.addEventListener('click', () => { setService(button.dataset.package); setStep(1); }));
   $$('.choice-card').forEach(button => button.addEventListener('click', () => setService(button.dataset.choice)));
   $$('[data-next]').forEach(button => button.addEventListener('click', nextStep));
   $$('[data-back]').forEach(button => button.addEventListener('click', () => setStep(Math.max(1, state.step - 1))));
@@ -579,53 +571,23 @@ async function init() {
   $('#adminPanel').addEventListener('change', async event => {
     if (!event.target.matches('[data-status-id]')) return;
     const booking = bookings().find(item => item.id === event.target.dataset.statusId);
-    if (!booking || !supabaseClient) return;
+    if (!booking) return;
     const nextStatus = event.target.value;
     if (booking.status === nextStatus) return;
     const statusHistory = [...booking.statusHistory, { status: nextStatus, at: new Date().toISOString() }];
-    const { error } = await supabaseClient.from('bookings').update({ status: nextStatus, status_history: statusHistory }).eq('id', booking.id);
-    if (error) { showToast('Could not update booking status.'); return; }
     booking.status = nextStatus;
     booking.statusHistory = statusHistory;
+    savePrototypeBookings();
     await renderAdmin();
     showToast('Booking status updated.');
   });
   $('#menuToggle').addEventListener('click', () => { const nav = $('#mainNav'); const open = nav.classList.toggle('open'); $('#menuToggle').setAttribute('aria-expanded', open); });
-  $$('#mainNav a').forEach(link => link.addEventListener('click', () => $('#mainNav').classList.remove('open')));
+  $$('#mainNav a').forEach(link => link.addEventListener('click', () => {
+    $('#mainNav').classList.remove('open');
+    $('#menuToggle').setAttribute('aria-expanded', 'false');
+  }));
   const modal = $('#infoModal'); $('#subscribeBtn').addEventListener('click', () => modal.classList.remove('hidden')); $('#modalClose').addEventListener('click', () => modal.classList.add('hidden')); modal.addEventListener('click', event => { if (event.target === modal) modal.classList.add('hidden'); });
 
-  const config = window.WASH_DASH_SUPABASE;
-  if (window.supabase?.createClient && config?.url && config?.anonKey && !config.url.startsWith('YOUR_') && !config.anonKey.startsWith('YOUR_')) {
-    supabaseClient = window.supabase.createClient(config.url, config.anonKey);
-    supabaseClient.auth.onAuthStateChange((_event, session) => {
-      const user = session?.user || null;
-      window.setTimeout(async () => {
-        if (!user) {
-          currentAdmin = null;
-          bookingCache = [];
-          syncAdminUi();
-          return;
-        }
-        if (await userIsAdmin(user)) {
-          currentAdmin = user;
-          syncAdminUi();
-          renderAdmin();
-        } else {
-          currentAdmin = null;
-          syncAdminUi();
-          await supabaseClient.auth.signOut();
-        }
-      }, 0);
-    });
-    const { data } = await supabaseClient.auth.getSession();
-    if (data.session?.user && await userIsAdmin(data.session.user)) currentAdmin = data.session.user;
-    else if (data.session?.user) await supabaseClient.auth.signOut();
-  } else {
-    $('#adminLoginError').textContent = 'Add your Supabase project URL and anon key to js/supabase-config.js.';
-    $('#trackingError').textContent = 'Online tracking will be available after Supabase is configured.';
-  }
-  syncAdminUi();
-  renderAdmin();
 }
 
 document.addEventListener('DOMContentLoaded', init);
